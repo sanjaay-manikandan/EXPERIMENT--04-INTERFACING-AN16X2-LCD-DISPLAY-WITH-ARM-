@@ -173,15 +173,145 @@ https://engineeringxpert.com/wp-content/uploads/2022/04/26.png
 
 
 ## STM 32 CUBE PROGRAM :
+```
+#include <stdint.h>
 
+// --- Register Memory Map Addresses for STM32F401 ---
+#define RCC_BASE        0x40023800
+#define GPIOA_BASE      0x40020000
+#define GPIOB_BASE      0x40020400
 
+// RCC Register
+#define RCC_AHB1ENR     (*(volatile uint32_t *)(RCC_BASE + 0x30))
 
+// GPIO Registers (GPIOA & GPIOB)
+#define GPIOA_MODER     (*(volatile uint32_t *)(GPIOA_BASE + 0x00))
+#define GPIOA_BSRR      (*(volatile uint32_t *)(GPIOA_BASE + 0x18))
+
+#define GPIOB_MODER     (*(volatile uint32_t *)(GPIOB_BASE + 0x00))
+#define GPIOB_BSRR      (*(volatile uint32_t *)(GPIOB_BASE + 0x18))
+
+// Inline Assembly NOP
+#define NOP()           __asm__ volatile ("nop")
+
+// --- Simple Microsecond Delay ---
+void delay_us(uint32_t us) {
+    uint32_t count = us * 16; // Approx delay loops for 16MHz default clock
+    while(count--) {
+        NOP();
+    }
+}
+
+// --- Simple Millisecond Delay ---
+void delay_ms(uint32_t ms) {
+    while(ms--) {
+        delay_us(1000);
+    }
+}
+
+// --- Configure Pins PA0, PA1, PA2, PA3, PB0, PB1 as General Output ---
+void GPIO_Init(void) {
+    // 1. Enable Clock for GPIOA (Bit 0) and GPIOB (Bit 1)
+    RCC_AHB1ENR |= (1 << 0) | (1 << 1);
+
+    // 2. Set PA0, PA1, PA2, PA3 as Outputs (Mode 01)
+    // Bits 0-7 in GPIOA_MODER control PA0 to PA3
+    GPIOA_MODER &= ~((3 << 0) | (3 << 2) | (3 << 4) | (3 << 6)); // Clear mode bits
+    GPIOA_MODER |=  ((1 << 0) | (1 << 2) | (1 << 4) | (1 << 6)); // Set Output mode (01)
+
+    // 3. Set PB0, PB1 as Outputs (Mode 01)
+    // Bits 0-3 in GPIOB_MODER control PB0 and PB1
+    GPIOB_MODER &= ~((3 << 0) | (3 << 2)); // Clear mode bits
+    GPIOB_MODER |=  ((1 << 0) | (1 << 2)); // Set Output mode (01)
+}
+
+// --- Send Nibble to PA3 (D4), PA2 (D5), PA1 (D6), PA0 (D7) ---
+void LCD_SendNibble(uint8_t nibble) {
+    // D4 -> PA3 (BSRR bit 3 to Set, bit 19 to Reset)
+    if (nibble & 0x01) GPIOA_BSRR = (1 << 3);
+    else               GPIOA_BSRR = (1 << 19);
+
+    // D5 -> PA2 (BSRR bit 2 to Set, bit 18 to Reset)
+    if (nibble & 0x02) GPIOA_BSRR = (1 << 2);
+    else               GPIOA_BSRR = (1 << 18);
+
+    // D6 -> PA1 (BSRR bit 1 to Set, bit 17 to Reset)
+    if (nibble & 0x04) GPIOA_BSRR = (1 << 1);
+    else               GPIOA_BSRR = (1 << 17);
+
+    // D7 -> PA0 (BSRR bit 0 to Set, bit 16 to Reset)
+    if (nibble & 0x08) GPIOA_BSRR = (1 << 0);
+    else               GPIOA_BSRR = (1 << 16);
+
+    // Pulse Enable Pin (PB1) HIGH then LOW
+    GPIOB_BSRR = (1 << 1);   // PB1 HIGH
+    delay_us(10);
+    GPIOB_BSRR = (1 << 17);  // PB1 LOW
+    delay_us(100);
+}
+
+// --- Send Command or Character Byte ---
+void LCD_SendByte(uint8_t value, uint8_t isData) {
+    // RS -> PB0: 0 for Command, 1 for Data
+    if (isData) GPIOB_BSRR = (1 << 0);  // Set PB0 HIGH
+    else        GPIOB_BSRR = (1 << 16); // Set PB0 LOW
+
+    // Send Upper 4 bits
+    LCD_SendNibble(value >> 4);
+    // Send Lower 4 bits
+    LCD_SendNibble(value & 0x0F);
+
+    delay_ms(2);
+}
+
+// --- Initialize LCD in 4-Bit Mode ---
+void LCD_Init(void) {
+    delay_ms(50); // Wait for LCD power-up
+
+    // 4-Bit Initialization Sequence
+    GPIOB_BSRR = (1 << 16); // RS = 0 (Command)
+    LCD_SendNibble(0x03);
+    delay_ms(5);
+    LCD_SendNibble(0x03);
+    delay_ms(1);
+    LCD_SendNibble(0x03);
+    delay_ms(1);
+    LCD_SendNibble(0x02); // Set to 4-bit mode
+    delay_ms(1);
+
+    LCD_SendByte(0x28, 0); // 4-bit mode, 2 lines, 5x8 font
+    LCD_SendByte(0x0C, 0); // Display ON, Cursor OFF
+    LCD_SendByte(0x01, 0); // Clear Display
+    delay_ms(2);
+    LCD_SendByte(0x06, 0); // Entry mode set
+}
+
+// --- Send Text String ---
+void LCD_SendString(char *str) {
+    while (*str) {
+        LCD_SendByte(*str++, 1);
+    }
+}
+
+int main(void) {
+    GPIO_Init();            // Initialize GPIO pins
+    LCD_Init();             // Initialize LCD
+    LCD_SendString("Rithanya"); // Print HELLO
+
+    /* Infinite loop */
+    while (1) {
+    }
+}
+
+```
 
 ## Output screen shots of proteus  :
- 
+ <img width="1342" height="951" alt="Screenshot 2026-10-27 090902" src="https://github.com/user-attachments/assets/8bd06469-3a13-48d9-ad7b-e46fad0264ac" />
+
  
  ## CIRCUIT DIAGRAM (EXPORT THE GRAPHICS TO PDF AND ADD THE SCREEN SHOT HERE): 
- 
+ <img width="926" height="942" alt="Screenshot 2026-10-27 090918" src="https://github.com/user-attachments/assets/3f65b601-ec0b-43de-8aca-5ada05d3823d" />
+
  
 ## Result :
 Interfacing a lcd display with ARM microcontroller are simulated in proteus and the results are verified.
